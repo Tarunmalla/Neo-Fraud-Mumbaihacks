@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk-engine
+spec:
+  selector:
+    matchLabels:
+      app: risk-engine
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: risk-engine
+    spec:
+      containers:
+      - name: risk-engine
+        image: gcr.io/mumbaihacks-1/risk-engine:latest
+        env:
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/etc/gcp/key.json"
+        volumeMounts:
+        - name: gcp-key
+          mountPath: "/etc/gcp"
+          readOnly: true
+      volumes:
+      - name: gcp-key
+        secret:
+          secretName: fintech-secrets
+          items:
+          - key: GOOGLE_APPLICATION_CREDENTIALS
+            path: key.json

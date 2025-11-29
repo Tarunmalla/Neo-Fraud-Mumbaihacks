@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-graph-service
+spec:
+  selector:
+    matchLabels:
+      app: ai-graph-service
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ai-graph-service
+    spec:
+      containers:
+      - name: ai-graph-service
+        image: gcr.io/mumbaihacks-1/ai-graph-service:latest
+        ports:
+        - containerPort: 6000
+        env:
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: NEO4J_URI
+          value: "bolt://neo4j:7687"
+        - name: NEO4J_USER
+          value: "neo4j"
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fintech-secrets
+              key: NEO4J_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-graph-service
+spec:
+  ports:
+  - port: 6000
+    targetPort: 6000
+  selector:
+    app: ai-graph-service

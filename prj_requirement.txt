@@ -1,0 +1,269 @@
+intech Protective Layer Platform (India) – Infrastructure Plan
+
+This platform is a cloud-native, pluggable fraud/risk-protection layer for Indian payment applications (bank apps, merchants, PSPs, wallets). It provides real-time scoring, anomaly detection, privacy masking, and compliance controls (RBI, PCI-DSS, DPDP, etc.) for any payment flow (UPI, cards, wallets). Built on Google Cloud, it uses microservices, streaming analytics, ML, and secure APIs.
+
+1. Stakeholders & Usage Modes
+
+Banks/Issuers (PSPs): Integrate to vet transactions (pre-authorization risk check) and detect fraud post-authorization. Use the platform’s SDK/API or gateway to score UPI/app transactions and card payments in real-time
+confluent.io
+razorpay.com
+. For example, a bank could send each UPI transfer through our risk API before confirming.
+
+Merchants/Acquirers: Embed the platform before final settlement to reduce chargebacks and fraud. Use the APIs to validate card/UPI payments and mask PII in logs (storing tokens, not raw PAN)
+cloud.google.com
+razorpay.com
+. E.g., an e-commerce gateway calls the “risk-check” endpoint on each order.
+
+Aggregators/Gateways: Use it as a unified middleware for many sub-merchants. They can route all payment flows (UPI, Visa/Master, RuPay, wallets) through the platform to leverage centralized analytics, fraud models, and compliance controls.
+
+Multiple Modes: The platform supports API integration (REST/gRPC for servers), SDKs (Java, Python, Node, mobile) and webhook-style callbacks. It can operate as a sidecar or middleware in Kubernetes, or as a cloud API (similar to Razorpay/Juspay)
+
+
+<table> <tr><th>User Type</th><th>Mode of Use</th><th>Benefits</th></tr> <tr><td><b>Banks/PSPs</b></td> <td>Call risk-check APIs per transaction; ingest event streams for monitoring.</td> <td>Granular risk scores (based on device, location, history); RBI-compliant dynamic authentication; reduce fraud losses.</td></tr> <tr><td><b>Merchants/Acquirers</b></td> <td>Integrate SDK/API in checkout flow; forward transactions to platform gateway.</td> <td>Pre-authorization screening, chargeback prevention; unified ledger for fraud analysis; PCI-DSS comfort via tokenization.</td></tr> <tr><td><b>Aggregators/Gateways</b></td> <td>Route all client transactions through a central platform endpoint.</td> <td>Scalable multi-tenant fraud protection; standardized compliance; analytics dashboards across merchants.</td></tr> </table>
+2. High-Level Architecture
+
+The platform is built as microservices on GCP (Fig. A). Key components include:
+
+API Gateway & Developer Portal: An API management layer (e.g. Apigee or Cloud Endpoints) exposing REST/JSON and gRPC endpoints (risk-check, reporting, config). It handles auth, quotas, versioning, and provides a developer portal with docs, SDKs, sandbox keys
+
+
+Integration Layer: Microservices for each payment network:
+
+UPI Gateway Service: Implements NPCI UPI protocols. It validates VPAs, initiates UPI collect/push requests, and listens to NPCI’s callbacks. It may use NPCI APIs or integrate via UPI PSP channels. This abstracts UPI complexity.
+
+Card Network Service: Handles card transactions via standard ISO-8583 or APIs to Visa/Mastercard/RuPay switches. It tokenizes PAN, routes authorization requests, and receives EMV/3DS responses. It integrates with PCI-compliant HSM or token vault.
+
+Wallet/Other: Connectors for mobile wallets (e.g. Paytm, PhonePe) or IMPS/NEFT rails. These use each provider’s APIs to push transactions or query status.
+
+Fraud/Risk Engine (Real-Time Decision): A streaming analytics pipeline that ingests each transaction/event (from PSPs) and applies rules + ML models. It outputs a Risk Score. This is implemented via Google Dataflow (Apache Beam) reading from Pub/Sub, calling Vertex AI (AI Platform) models, and writing to BigQuery and Pub/Sub
+
+Behavioral & Anomaly Detection: Continuously profile user/device behavior. Anomaly detectors (e.g. based on Apache Flink or Cloud Dataflow) flag deviations (e.g. new device, unusual location, spending spurt). Composite-event logic (e.g. multiple failed logins then a transfer) is detected in stream
+
+
+Data Stores:
+
+Operational DB (e.g. Cloud Spanner/Cloud SQL): Stores configuration, merchant accounts, user risk profiles, thresholds.
+
+NoSQL for State (Cloud Firestore or Bigtable): Used by the streaming engine to maintain recent transaction history per user (sliding window). For example, Firestore can keep the latest N events to compute on-the-fly aggregates (freq, volume)
+
+
+Data Warehouse (BigQuery): Stores all transaction logs, model training data, and risk scores. Used for offline analytics, model training, and dashboards.
+
+Analytics & Monitoring:
+
+BigQuery ML / Vertex AI: Builds and hosts fraud models (e.g. XGBoost, DNN). Historical labeled data (fraud vs legitimate) in BigQuery trains models using BigQuery ML or exported to Vertex AI for training. Models are exported to Vertex Prediction or served via Dataflow for online inference
+
+
+Visualization: Dashboards (Looker/Data Studio) on BigQuery tables show fraud rates, latency, model accuracy, etc
+
+Alerts & Notifications: Pub/Sub triggers alerts (e.g. SMS/email via Twilio) if high-risk flagged or anomaly detected
+
+
+Logging & Audit:
+
+Cloud Logging/Monitoring: Every request, decision, and internal operation is logged. Strict PCI requirement: “every step… must be monitored and recorded”
+
+. Logs are exported to BigQuery for forensic analysis.
+
+Security Auditing: Using Google’s Access Transparency, Firewall logs, VPC Flow Logs to audit access (as per PCI DSS guidance)
+
+ Figure A: Example real-time fraud pipeline. Transactions stream in, are scored by ML models (Vertex AI), and real-time alerts fire via Pub/Sub.
+
+3. Payment Network Integration
+
+UPI Integration: The UPI Gateway Service manages NPCI’s real-time switch for Immediate Payment Service (IMPS-based). It will:
+
+Accept PSP/merchant calls (via our API or SDK) with payment intent.
+
+Initiate UPI collect/push messages to NPCI; handle NPCI’s synchronous/asynchronous confirmation.
+
+Support UPI intent and QR-based payments
+
+
+Comply with NPCI’s timing and security rules (TLS, signed requests).
+The GeeksforGeeks UPI design notes the NPCI acts as a central switch routing between payer/payee banks, with security encryption
+
+. Our service mirrors this, acting as a “payer PSP” in the flow, then returns status to clients.
+
+Card Networks: The Card Service handles Visa/Master/RuPay flows:
+
+Implements ISO 8583 or API calls for Authorization, Capture, Reversal.
+
+Enforces PCI-DSS: card numbers are tokenized or truncated (only store first6/last4), CVV never stored. Encryption (Cloud KMS/HSM) for any sensitive data in transit/storage.
+
+Manages BIN routing (must register BINs by Oct 2026 per RBI)
+timesofindia.indiatimes.com
+ and supports card-scheme 3DS or OTP steps as needed.
+
+Interfaces with acquirer banks or card-switching services, interpreting responses (approve/decline).
+
+Mobile Wallets / Other: For wallets (e.g. Paytm), the Wallet Service uses each provider’s API to send payment requests. It also listens for callbacks. For wallets that use UPI underneath, the UPI Gateway covers them. Some wallets have proprietary “push” (IMPS) APIs that can be integrated similarly.
+
+Each integration microservice is auto-scaled (Kubernetes/GKE or Cloud Run) and stateless (any state in DB). Rate limiting and circuit-breakers protect downstream switches
+medium.com
+.
+
+4. Fraud Detection & Analytics
+
+Streaming Risk Scoring: As transactions flow in, the Dataflow pipeline applies pre-built ML models and rules:
+
+Real-time ML Inference: Each event goes through the model. We use Vertex AI (previously AI Platform) to serve models trained via BigQuery ML or AutoML
+ For example, an XGBoost model predicts is_fraud. Latency is seconds; performance can improve by embedding the model in Dataflow workers
+
+
+Aggregate Features: The model uses features like user’s transaction frequency/amount in last 1h/24h, device change flags, location, etc. These are computed by the streaming job. Firestore/Bigtable stores recent history; Dataflow computes sliding-window features on each event
+
+
+Anomaly & Composite Detection: Parallel to ML, rules/pattern detectors identify anomalies (big jump in spend, new geo, rapid sequence of small payments) and composite fraud (e.g. login-failure-then-transfer). This uses stateful stream processing (Flink or Dataflow keyed by user)
+
+
+Risk Scoring Pipeline: Implements “transaction scoring pipeline” pattern: ML models output a risk score, which is updated with new events (login, OTP failures). This score is compared against dynamic thresholds to decide if extra auth or block is needed
+
+
+Batch Analytics: Historical data in BigQuery is used for:
+
+Retraining models periodically (use Vertex AI Pipelines or scheduled BigQuery ML).
+
+Dashboard/BI for fraud trends, root-cause analysis, compliance reports.
+
+Behavioral profiling (e.g., train network graph models or clustering to refine anomaly detection).
+
+Privacy Masking: Sensitive fields (PAN, UPI PIN, Aadhaar, PII) are masked/tokenized. Use Cloud DLP to de-identify logs and analytics tables
+cloud.google.com
+. For instance, Cloud DLP can mask PAN digits or redact names in data sent to analysts, complying with DPDP/RBI privacy guidelines.
+
+5. Microservices & Data Flow
+
+Microservice Architecture: Follows domain-driven design. Key services (each in its own repo and container) include:
+
+AuthService: OAuth2/JWT issuer for API clients and platforms.
+
+Integration Services (UPI, Card, Wallet as above).
+
+RiskService: Core fraud-scoring logic, maybe stateless wrapper over streaming engine.
+
+RulesEngine: Manages configurable rules/thresholds (e.g. velocity limits per merchant).
+
+DataCollector: Ingests transaction streams from PSPs (e.g., via Pub/Sub or push endpoints).
+
+AnalyticsService: Provides reporting APIs, dashboards.
+
+Admin/Onboarding Service: For partners to register accounts, get API keys.
+
+Each service communicates over gRPC/REST via an API Gateway. Internally, services use a message bus (Pub/Sub or Kafka) for events (e.g., logging transactions, triggering alerts)
+
+. This decouples services and prevents thundering herds (Pub/Sub auto-scales consumers)
+
+
+Database & Storage Design:
+
+Spanner/SQL for transactional config and limits.
+
+Firestore/Bigtable (NoSQL) for high-QPS lookups (session state, recent events). Firestore’s document store is used in streaming jobs for user features
+cloud.google.com
+.
+
+BigQuery for all logs and training data (append-only, fine for analytics).
+
+Cloud Storage for audit logs, model artifacts, backups.
+
+Event Processing Pipeline (Figure B):
+
+Ingestion: PSP apps send each transaction via our API or directly to a Pub/Sub topic.
+
+Pre-Risk Checks: An initial service applies static checks (e.g. valid format, blacklist).
+
+Risk Scoring (Stream): Dataflow job consumes Pub/Sub stream, enriches with user/device context (from Firestore), invokes ML model(s), and computes risk score & tags.
+
+Decision: If score > threshold, trigger actions (e.g. BLOCK, MFA_REQUIRED) which are sent via Pub/Sub to the calling service or client webhook. Otherwise pass as ALLOW.
+
+Logging: All decisions and raw data are saved to BigQuery; risk decisions also logged. PCI dictates “every step… recorded”
+cloud.google.com
+.
+
+Notifications: High-risk cases publish alerts (e.g. notify support or user via SMS).
+
+cloud.google.com
+cloud.google.com
+ Figure B: Data flow: Transactions → Pub/Sub → Dataflow (with ML + Firestore) → decision → BigQuery/Alerts.
+
+6. Security & Compliance
+
+Data-in-Transit/Rest Encryption: All traffic uses TLS 1.2+. Sensitive data (card PAN, account numbers) is encrypted at rest using Cloud KMS (AES-256). We employ tokenization: only token IDs travel through services, raw PANs are stored in a separate, highly-secure Vault (either Cloud HSM or PCI-certified vault)
+cloud.google.com
+cloud.google.com
+.
+
+Access Controls: Strict IAM policies. Services run under minimal-privilege service accounts. Use VPC Service Controls to isolate resources. Critical secrets (DB credentials, API keys) in Secret Manager with audit logging.
+
+WAF & DDoS: Deploy Cloud Armor and Identity-Aware Proxy on edge to filter malicious traffic (OWASP top10). Rate-limit APIs at the edge to prevent abuse
+medium.com
+.
+
+PCI-DSS Compliance:
+
+Use GCP’s PCI-certified services (GKE, BigQuery, etc.) as a foundation
+cloud.google.com
+.
+
+We minimize scope: no storage of CVV/CVV2, PANs are tokenized, backup logs encrypted.
+
+Card data flows through isolated networks (segmented VPC for card processing nodes).
+
+Logging & Monitoring follow PCI section 10: “every step… monitored and recorded”
+cloud.google.com
+. VPC Flow Logs and Firewall Logs capture all traffic patterns.
+
+RBI Guidelines: The RBI’s 2026 mandate requires dynamic, risk-based authentication (device, location, behaviour) instead of OTP-only
+timesofindia.indiatimes.com
+timesofindia.indiatimes.com
+. This platform explicitly uses these signals in its scoring (e.g. new device = higher risk). It supports multi-factor challenges (e.g. trigger an OTP or biometric step via client apps) when risk is high. We comply with inter-operability norms and provide audit trails to meet RBI’s master direction on fraud reporting.
+
+Privacy & DPDP: We enforce consent and purpose limits for personal data. All PII in logs is masked. We retain only minimally required user data. Data classification and deletion policies comply with India’s Data Protection law.
+
+Monitoring & Audits: Use Cloud Security Command Center, IDS, and Logging. Generate regular compliance reports (Cloud Compliance Reports Manager). All admin actions and API accesses are logged with Cloud Audit (Access Transparency covers Google side access)
+cloud.google.com
+.
+
+7. GCP Deployment & Scalability
+
+Containerization: All microservices run in Kubernetes (GKE) or Cloud Run (serverless containers). Autoscaling reacts to load (tested with pre-warming for events like Diwali sale bursts)
+medium.com
+.
+
+Eventing: Use Cloud Pub/Sub for decoupling and autoscaling streams. Dataflow is serverless and auto-scales for processing spikes, ensuring seconds latency
+cloud.google.com
+cloud.google.com
+.
+
+Databases: Cloud Spanner (or Cloud SQL with Read Replicas) for regional scale; BigQuery as global warehouse. Bigtable or Firestore for petabyte-scale NoSQL.
+
+AI/ML: Use Vertex AI for model training and online prediction (models can be deployed to endpoints or on Dataflow). GPU instances (on GKE) can be used for model training if needed.
+
+Networking: Use multiple zones and/or multi-region replication (e.g. Spanner multi-region) for high availability. Use Cloud Load Balancing for global frontend.
+
+Infrastructure as Code: Managed via Terraform/Deployment Manager. Version-controlled. One team owns a service from code to cloud (DevOps culture). Observability (Stackdriver) for logs/metrics/traces.
+
+8. Developer Experience (API/SDK)
+
+API Portal: Swagger/OpenAPI specs for each endpoint. Self-service portal (via Apigee) allows developers to register apps, obtain API keys, view usage analytics, and try “Try it” consoles.
+
+SDKs & Libraries: Provide client libraries in Java, Python, Node.js, Go, and mobile SDKs (Android/iOS) that wrap the REST calls and handle retries/auth. These encode best practices (secure TLS, request signing).
+
+Onboarding Tools: Sandbox environment with fake money and test data for easy integration and testing. Automated KYC/KYB APIs for partner vetting.
+
+Documentation: Detailed guides for “Fraud Scenarios”, example integration codes, error handling. Example: like Razorpay’s docs for UPI APIs
+, but extended with security guidelines.
+
+APIs Example: POST /v1/transactions/risk-check (input transaction JSON; output risk score + action). GET /v1/reports/fraud-stats?since=... for analytics.
+
+9. Summary
+
+This cloud-native platform provides a unified, secure layer for any Indian payment application. Its microservice design and use of GCP managed services (Pub/Sub, Dataflow, BigQuery, Vertex AI, GKE, etc.) ensure it scales to India’s massive payment volumes. Real-time streaming analytics and ML deliver up-to-the-second fraud scores, meeting RBI’s risk-based authentication mandate
+timesofindia.indiatimes.com
+. Privacy and PCI compliance are baked in (tokenization, DLP, KMS)
+cloud.google.com
+cloud.google.com
+. Beneficiaries (banks, merchants, aggregators) simply plug in via API/SDK and immediately gain advanced fraud/risk checks, regulatory logging, and reporting.
+
+Each component – from UPI/card connectors to risk engines and developer portal – is orchestrated through auto-scaling Kubernetes clusters and serverless pipelines, with observability and security built at every layer. This comprehensive design ensures seamless integration into India’s payments ecosystem while providing robust protection and compliance

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: post-auth-worker
+spec:
+  selector:
+    matchLabels:
+      app: post-auth-worker
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: post-auth-worker
+    spec:
+      containers:
+      - name: post-auth-worker
+        image: gcr.io/mumbaihacks-1/post-auth-worker:latest
+        env:
+        - name: NEO4J_URI
+          value: "bolt://neo4j:7687"
+        - name: NEO4J_USER
+          value: "neo4j"
+        - name: NEO4J_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fintech-secrets
+              key: NEO4J_PASSWORD
+        - name: DISCORD_WEBHOOK_URL
+          valueFrom:
+            secretKeyRef:
+              name: fintech-secrets
+              key: DISCORD_WEBHOOK_URL
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/etc/gcp/key.json"
+        volumeMounts:
+        - name: gcp-key
+          mountPath: "/etc/gcp"
+          readOnly: true
+      volumes:
+      - name: gcp-key
+        secret:
+          secretName: fintech-secrets
+          items:
+          - key: GOOGLE_APPLICATION_CREDENTIALS
+            path: key.json

@@ -1,0 +1,21 @@
+```json
+{
+  "name": "fintech-protective-layer",
+  "version": "1.0.0",
+  "description": "Fintech Protective Layer Platform Prototype",
+  "main": "index.js",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
+```

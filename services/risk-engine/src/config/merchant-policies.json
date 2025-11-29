@@ -1,0 +1,20 @@
+{
+    "MERCHANT_A": {
+        "mode": "PROTECT",
+        "max_txn_amount": 20000,
+        "velocity_limit_1m": 4,
+        "risk_decay_rate": 0.95
+    },
+    "MERCHANT_B": {
+        "mode": "MONITOR",
+        "max_txn_amount": 5000,
+        "velocity_limit_1m": 2,
+        "risk_decay_rate": 0.95
+    },
+    "DEFAULT": {
+        "mode": "PROTECT",
+        "max_txn_amount": 10000,
+        "velocity_limit_1m": 3,
+        "risk_decay_rate": 0.95
+    }
+}

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-service
+spec:
+  selector:
+    matchLabels:
+      app: webhook-service
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: webhook-service
+    spec:
+      containers:
+      - name: webhook-service
+        image: gcr.io/mumbaihacks-1/webhook-service:latest
+        env:
+        - name: REDIS_URL
+          value: "redis://redis:6379"
+        - name: HMAC_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: fintech-secrets
+              key: HMAC_SECRET
